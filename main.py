@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, BufferedInputFile, InputMediaPhoto
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from pipeline import handle_post
+from pipeline import GenerationResult, handle_post
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -37,9 +37,9 @@ async def handle_news(message: Message) -> None:
 
     try:
         # === ЭТАП 1: ГЕНЕРАЦИЯ ===
-        images = await asyncio.to_thread(handle_post, text)
-        
-        if not images:
+        result: GenerationResult = await asyncio.to_thread(handle_post, text)
+
+        if not result.images:
             await status_msg.edit_text("⚠️ Не удалось сгенерировать изображение. Попробуйте другой текст.")
             return
 
@@ -50,13 +50,63 @@ async def handle_news(message: Message) -> None:
             pass
 
         # === ЭТАП 3: ОТПРАВКА ===
-        if len(images) == 1:
-            file = BufferedInputFile(images[0].getvalue(), filename="image.jpg")
-            await send_with_retry(message.answer_photo, photo=file, caption="Вот ваша визуализация.")
+        def _format_caption(prefix: str, validation_ok: bool, feedback: str) -> str:
+            if validation_ok:
+                return prefix
+            hint = feedback or "Проверка не прошла."
+            return f"{prefix}\n⚠️ Возможно, изображение не по теме: {hint}"
+
+        if len(result.images) == 1:
+            file = BufferedInputFile(result.images[0].getvalue(), filename="image.jpg")
+            caption = _format_caption("Вот ваша визуализация.", result.validation_ok, result.validation_feedback)
+            await send_with_retry(message.answer_photo, photo=file, caption=caption)
         else:
-            media = [InputMediaPhoto(media=BufferedInputFile(img.getvalue(), f"img_{i}.jpg")) 
-                     for i, img in enumerate(images)]
+            media = [
+                InputMediaPhoto(
+                    media=BufferedInputFile(img.getvalue(), f"img_{i}.jpg"),
+                    caption=_format_caption(
+                        "Вот ваша визуализация.", result.validation_ok, result.validation_feedback
+                    ) if i == 0 else None,
+                )
+                for i, img in enumerate(result.images)
+            ]
             await send_with_retry(message.answer_media_group, media=media)
+
+        if not result.validation_ok:
+            info_msg = await message.answer(
+                "⚠️ Проверка показала, что изображение может быть не по теме. Генерирую дополнительный вариант..."
+            )
+            try:
+                extra_result: GenerationResult = await asyncio.to_thread(handle_post, text)
+                if extra_result.images:
+                    if len(extra_result.images) == 1:
+                        extra_file = BufferedInputFile(
+                            extra_result.images[0].getvalue(), filename="image_retry.jpg"
+                        )
+                        extra_caption = _format_caption(
+                            "Дополнительная визуализация.",
+                            extra_result.validation_ok,
+                            extra_result.validation_feedback,
+                        )
+                        await send_with_retry(message.answer_photo, photo=extra_file, caption=extra_caption)
+                    else:
+                        extra_media = [
+                            InputMediaPhoto(
+                                media=BufferedInputFile(img.getvalue(), f"extra_img_{i}.jpg"),
+                                caption=_format_caption(
+                                    "Дополнительная визуализация.",
+                                    extra_result.validation_ok,
+                                    extra_result.validation_feedback,
+                                ) if i == 0 else None,
+                            )
+                            for i, img in enumerate(extra_result.images)
+                        ]
+                        await send_with_retry(message.answer_media_group, media=extra_media)
+            finally:
+                try:
+                    await info_msg.delete()
+                except Exception:
+                    pass
 
     except Exception as e:
         logging.exception("Критическая ошибка в handle_news")
