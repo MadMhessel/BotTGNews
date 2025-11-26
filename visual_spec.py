@@ -31,7 +31,14 @@ def build_visual_spec(analysis: dict, strategy: dict) -> dict:
         
         "text_overlay": {
             "enabled": strategy["use_text_on_image"],
-            "headline": None
+            "headline": None,
+            "layout": {
+                "placement": "auto",  # top, center, bottom
+                "alignment": "center",  # left, center, right
+                "style": "glass",  # glass, soft_card, banner
+                "palette": "auto",  # auto подбирает по фону, либо light/dark
+                "emphasis": []
+            }
         },
         
         "format": {

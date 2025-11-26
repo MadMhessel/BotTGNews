@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
-from analysis import analyze_news, build_image_headline
+from analysis import analyze_news, build_image_headline, build_text_overlay_plan
 from strategy import decide_visual_strategy
 from visual_spec import build_visual_spec
 from image_generation import build_image_prompt, generate_image_with_gemini
@@ -34,12 +34,16 @@ def handle_post(text: str) -> GenerationResult:
     # 3. Спецификация
     spec = build_visual_spec(analysis, strategy)
 
-    # 4. Заголовок
+    # 4. Заголовок и правила его размещения
     if spec["text_overlay"]["enabled"]:
         logging.info("3. Генерация заголовка...")
         headline = build_image_headline(text, analysis, spec)
         spec["text_overlay"]["headline"] = headline
         logging.info(f"   Заголовок: {headline}")
+
+        logging.info("3a. Подбор размещения и стиля текста...")
+        spec["text_overlay"]["layout"] = build_text_overlay_plan(headline, analysis, spec)
+        logging.info(f"   План размещения: {spec['text_overlay']['layout']}")
     
     # 5. Промпт
     image_prompt = build_image_prompt(spec)
