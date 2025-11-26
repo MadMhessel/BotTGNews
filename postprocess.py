@@ -206,8 +206,8 @@ def _overlay_headline(img: Image.Image, text: str) -> Image.Image:
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     dr = ImageDraw.Draw(overlay)
 
-    # Создаем размытую подложку под текст, чтобы она лучше вписывалась
-    region = img.crop((box_x1, box_y1, box_x2, box_y2)).filter(ImageFilter.GaussianBlur(radius=6))
+    # Создаем мягкую подложку под текст с меньшим блюром, чтобы фон не "расползался"
+    region = img.crop((box_x1, box_y1, box_x2, box_y2)).filter(ImageFilter.GaussianBlur(radius=3))
     region_overlay = Image.new("RGBA", region.size, (0, 0, 0, 0))
     region_overlay.paste(region.convert("RGBA"))
     tinted_layer = Image.new("RGBA", region.size, bg_fill)
@@ -225,7 +225,9 @@ def _overlay_headline(img: Image.Image, text: str) -> Image.Image:
     img = img.convert("RGBA")
     img = Image.alpha_composite(img, overlay)
 
-    draw = ImageDraw.Draw(img)
+    # Отрисовываем текст на отдельном слое, который затем чуть резким маском усиливаем
+    text_layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(text_layer)
     current_y = box_y1 + padding
 
     for line in lines:
@@ -235,8 +237,8 @@ def _overlay_headline(img: Image.Image, text: str) -> Image.Image:
             lw, _ = draw.textsize(line, font=chosen_font)
 
         x_text = (base_w - lw) // 2
-        shadow_offset = max(1, chosen_font.size // 14)
-        stroke_width = max(1, chosen_font.size // 18)
+        shadow_offset = max(1, chosen_font.size // 18)
+        stroke_width = max(2, int(chosen_font.size * 0.08))
         draw.text((x_text + shadow_offset, current_y + shadow_offset), line, font=chosen_font, fill=stroke_fill)
         draw.text(
             (x_text, current_y),
@@ -247,6 +249,10 @@ def _overlay_headline(img: Image.Image, text: str) -> Image.Image:
             stroke_fill=stroke_fill,
         )
         current_y += line_height
+
+    # Легкое повышение резкости текста
+    sharpened_text = text_layer.filter(ImageFilter.UnsharpMask(radius=1.0, percent=170, threshold=2))
+    img = Image.alpha_composite(img, sharpened_text)
 
     return img.convert("RGB")
 
