@@ -27,7 +27,7 @@ def handle_post(text: str) -> List[bytes]:
     # 4. Заголовок
     if spec["text_overlay"]["enabled"]:
         logging.info("3. Генерация заголовка...")
-        headline = build_image_headline(text, analysis)
+        headline = build_image_headline(text, analysis, spec)
         spec["text_overlay"]["headline"] = headline
         logging.info(f"   Заголовок: {headline}")
     

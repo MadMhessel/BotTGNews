@@ -75,77 +75,123 @@ def _overlay_logo(base_img: Image.Image, text_present: bool) -> Image.Image:
     except Exception:
         return base_img
 
+def _measure_region_complexity(img_gray: Image.Image, box: tuple) -> tuple:
+    crop = img_gray.crop(box)
+    edges = crop.filter(ImageFilter.FIND_EDGES)
+    edge_score = ImageStat.Stat(edges).mean[0]
+    brightness = ImageStat.Stat(crop).mean[0]
+    return edge_score, brightness
+
+
 def _overlay_headline(img: Image.Image, text: str) -> Image.Image:
-    if not text: return img
-    
+    if not text:
+        return img
+
+    base_w, base_h = img.size
     draw = ImageDraw.Draw(img)
-    w, h = img.size
-    
+
     # Шрифт ~4.5% от высоты
-    font_size = int(h * 0.045)
+    font_size = int(base_h * 0.045)
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
     except IOError:
         font = ImageFont.load_default()
 
-    margin_side = int(w * 0.06) 
-    max_text_width = w - (2 * margin_side)
-    
+    margin_side = int(base_w * 0.06)
+    max_text_width = base_w - (2 * margin_side)
+
     # --- Перенос строк (Word Wrap) ---
     words = text.split()
-    lines = []
-    current_line = []
-    
+    lines, current_line = [], []
+
     for word in words:
-        test_line = ' '.join(current_line + [word])
-        # Замер ширины
-        if hasattr(draw, "textlength"): lw = draw.textlength(test_line, font=font)
-        else: lw, _ = draw.textsize(test_line, font=font)
-            
+        test_line = " ".join(current_line + [word])
+        if hasattr(draw, "textlength"):
+            lw = draw.textlength(test_line, font=font)
+        else:
+            lw, _ = draw.textsize(test_line, font=font)
+
         if lw <= max_text_width:
             current_line.append(word)
         else:
-            if current_line: lines.append(' '.join(current_line))
+            if current_line:
+                lines.append(" ".join(current_line))
             current_line = [word]
-    if current_line: lines.append(' '.join(current_line))
-    
+    if current_line:
+        lines.append(" ".join(current_line))
+
     # Ограничение до 3 строк
     if len(lines) > 3:
         lines = lines[:3]
         lines[-1] += "..."
 
-    # --- Рисование ---
     line_height = int(font_size * 1.4)
     total_h = len(lines) * line_height
     padding = int(font_size * 0.6)
-    
-    # Координаты плашки
+
+    # Подбор области с минимальным количеством деталей
+    overlay_h = total_h + (2 * padding)
+    top_y = int(base_h * 0.06)
+    center_y = max((base_h - overlay_h) // 2, top_y)
+    bottom_y = max(base_h - overlay_h - int(base_h * 0.08), top_y)
+
+    candidate_positions = [top_y, center_y, bottom_y]
+    img_gray = img.convert("L")
+
+    best_y = candidate_positions[0]
+    best_score = float("inf")
+    best_brightness = 128
+
+    for y in candidate_positions:
+        box = (
+            margin_side - padding,
+            y,
+            base_w - margin_side + padding,
+            y + overlay_h,
+        )
+        try:
+            edge_score, brightness = _measure_region_complexity(img_gray, box)
+        except Exception:
+            edge_score, brightness = 255, 128
+
+        if edge_score < best_score:
+            best_score = edge_score
+            best_y = y
+            best_brightness = brightness
+
     box_x1 = margin_side - padding
-    box_y1 = int(h * 0.06)
-    box_x2 = w - margin_side + padding
-    box_y2 = box_y1 + total_h + (2 * padding)
-    
-    # Подложка
-    overlay = Image.new("RGBA", img.size, (0,0,0,0))
+    box_y1 = best_y
+    box_x2 = base_w - margin_side + padding
+    box_y2 = box_y1 + overlay_h
+
+    # Динамическая плашка под фон: светлая на темном и наоборот
+    if best_brightness < 110:
+        bg_fill = (255, 255, 255, 190)
+        text_color = "#111111"
+    else:
+        bg_fill = (0, 0, 0, 190)
+        text_color = "white"
+
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     dr = ImageDraw.Draw(overlay)
-    dr.rectangle((box_x1, box_y1, box_x2, box_y2), fill=(0, 0, 0, 180)) 
-    
+    dr.rectangle((box_x1, box_y1, box_x2, box_y2), fill=bg_fill)
+
     img = img.convert("RGBA")
     img = Image.alpha_composite(img, overlay)
-    
-    # Текст
+
     draw = ImageDraw.Draw(img)
     current_y = box_y1 + padding
-    
+
     for line in lines:
-        if hasattr(draw, "textlength"): lw = draw.textlength(line, font=font)
-        else: lw, _ = draw.textsize(line, font=font)
-        
-        # Центрируем текст
-        x_text = (w - lw) // 2
-        draw.text((x_text, current_y), line, font=font, fill="white")
+        if hasattr(draw, "textlength"):
+            lw = draw.textlength(line, font=font)
+        else:
+            lw, _ = draw.textsize(line, font=font)
+
+        x_text = (base_w - lw) // 2
+        draw.text((x_text, current_y), line, font=font, fill=text_color)
         current_y += line_height
-        
+
     return img.convert("RGB")
 
 def process_image(img: Image.Image, spec: dict) -> io.BytesIO:
