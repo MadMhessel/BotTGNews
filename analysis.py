@@ -28,6 +28,24 @@ SYSTEM_PROMPT_HEADLINE = '''Сгенерируй заголовок для ка�
 Сохраняй суть новости без кликбейта. Не добавляй кавычки и не делай переносы строк.
 Верни только текст заголовка.'''
 
+SYSTEM_PROMPT_LAYOUT = '''Ты — арт-директор, который решает, как компактный заголовок ляжет на вертикальное изображение 4:5.
+Проанализируй контекст, чтобы текст не перекрывал важный сюжет и гармонично смотрелся с визуальным стилем.
+Верни строго JSON без пояснений:
+{
+  "placement": "top | center | bottom | auto",
+  "alignment": "left | center | right",
+  "style": "glass | soft_card | banner",
+  "palette": "auto | light | dark",
+  "emphasis": ["слова для акцента в тексте"]
+}
+Правила:
+- placement выбирается по важности фона (например, top, если низ кадра важен для сюжета, иначе auto).
+- alignment подбирается под композицию (анонс, промо — по центру; репортаж/новости — смещение влево/вправо возможно).
+- style: glass — прозрачная плашка с легким блюром; soft_card — мягкая карточка; banner — вытянутый баннер с минимальным скруглением.
+- palette: если фон предполагается темный, выбери light; если светлый — dark; если нет уверенности — auto.
+- emphasis: выбери до 2 слов/фраз, которые стоит подсветить цветом, учитывая смысл и эмоцию новости.
+'''
+
 def _clean_json_string(text: str) -> str:
     """Очищает строку от Markdown оберток ```json ... ``` и лишних символов."""
     # Убираем обертки markdown
@@ -127,3 +145,63 @@ def build_image_headline(post_text: str, analysis: dict, spec: dict) -> str:
     except Exception as e:
         logging.error(f"Ошибка генерации заголовка: {e}")
         return ""
+
+
+def build_text_overlay_plan(headline: str, analysis: dict, spec: dict) -> dict:
+    client = get_gemini_client()
+
+    context_parts = [
+        f"Категория: {analysis.get('category')}",
+        f"Событие: {analysis.get('subtype')}",
+        f"Тон: {analysis.get('tone')}",
+        f"Эмоция: {analysis.get('emotion')}",
+        f"Основной образ: {spec.get('subject')}",
+        f"Сцена: {spec.get('environment', '')}" if spec.get('environment') else None,
+        f"Тип визуала: {spec.get('style', {}).get('type')}",
+        f"Палитра: {spec.get('style', {}).get('palette')}",
+        f"Реализм: {spec.get('style', {}).get('realism')}",
+        f"Заголовок: {headline}",
+    ]
+    context = ". ".join(filter(None, context_parts))
+
+    default_plan = {
+        "placement": "auto",
+        "alignment": "center",
+        "style": "glass",
+        "palette": "auto",
+        "emphasis": [],
+    }
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=[
+                types.Content(role="system", parts=[types.Part(text=SYSTEM_PROMPT_LAYOUT)]),
+                types.Content(role="user", parts=[types.Part(text=context)]),
+            ],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+
+        if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
+            return default_plan
+
+        raw_text = ""
+        for part in response.candidates[0].content.parts:
+            if part.text:
+                raw_text += part.text
+
+        cleaned = _clean_json_string(raw_text)
+        plan = json.loads(cleaned)
+
+        if not isinstance(plan, dict):
+            return default_plan
+
+        merged = {**default_plan, **{k: v for k, v in plan.items() if k in default_plan}}
+        # Нормализуем список эмфазиса
+        if not isinstance(merged.get("emphasis"), list):
+            merged["emphasis"] = []
+
+        return merged
+    except Exception as e:
+        logging.error(f"Ошибка выбора расположения текста: {e}")
+        return default_plan
