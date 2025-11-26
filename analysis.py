@@ -24,8 +24,9 @@ SYSTEM_PROMPT_ANALYZE = '''Ты — главный аналитик. Твоя з
 }
 '''
 
-SYSTEM_PROMPT_HEADLINE = '''Сгенерируй заголовок для картинки (3-7 слов) на основе текста. 
-Стиль: суть новости, без кликбейта. 
+SYSTEM_PROMPT_HEADLINE = '''Сгенерируй заголовок для картинки (3-7 слов) на основе текста.
+Сделай формулировку живой и подстраивай под визуальный стиль: фотография = факт и конкретика; постер = слоган и ритм; иллюстрация = образность и эмоция.
+Сохраняй суть новости без кликбейта. Не добавляй кавычки и не делай переносы строк.
 Верни только текст заголовка.'''
 
 def _clean_json_string(text: str) -> str:
@@ -91,10 +92,24 @@ def analyze_news(text: str) -> dict:
         return default_analysis
 
 
-def build_image_headline(post_text: str, analysis: dict) -> str:
+def build_image_headline(post_text: str, analysis: dict, spec: dict) -> str:
     client = get_gemini_client()
-    context = f"Категория: {analysis.get('category')}. Тональность: {analysis.get('tone')}."
-    
+    style = spec.get("style", {})
+    text_overlay = spec.get("text_overlay", {})
+
+    # Контекст для адаптации текста под визуализацию
+    context_parts = [
+        f"Категория: {analysis.get('category')}",
+        f"Тональность текста: {analysis.get('tone')}",
+        f"Настрой визуала: {spec.get('mood_instruction', style.get('realism', ''))}",
+        f"Основной образ: {spec.get('subject')}",
+        f"Дополнительная сцена: {spec.get('environment', '')}" if spec.get('environment') else None,
+        f"Тип визуала: {style.get('type')}",
+        f"Цветовая палитра: {style.get('palette')}",
+        "Требуется лаконичный оверлей на изображении" if text_overlay.get("enabled") else None,
+    ]
+    context = ". ".join(filter(None, context_parts))
+
     try:
         response = client.models.generate_content(
             model="gemini-3-pro-preview",
