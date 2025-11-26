@@ -1,5 +1,7 @@
+import io
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
@@ -8,9 +10,17 @@ from strategy import decide_visual_strategy
 from visual_spec import build_visual_spec
 from image_generation import build_image_prompt, generate_image_with_gemini
 from postprocess import process_image
+from validation import validate_image_relevance
 
 
-def handle_post(text: str) -> List[bytes]:
+@dataclass
+class GenerationResult:
+    images: List[io.BytesIO]
+    validation_ok: bool
+    validation_feedback: str
+
+
+def handle_post(text: str) -> GenerationResult:
     logging.info("--- НАЧАЛО ОБРАБОТКИ ПОСТА ---")
     
     # 1. Анализ текста
@@ -37,6 +47,8 @@ def handle_post(text: str) -> List[bytes]:
 
     # 6. Генерация изображений
     images_data = []
+    validation_ok = True
+    validation_feedback = ""
     
     # Папка для сохранения
     save_dir = os.path.join(os.path.dirname(__file__), "generated_images")
@@ -62,10 +74,27 @@ def handle_post(text: str) -> List[bytes]:
 
         images_data.append(final_bytes)
         logging.info("7. Постобработка завершена.")
+
+        try:
+            validation_ok, validation_feedback = validate_image_relevance(
+                final_bytes.getvalue(), text
+            )
+            status = "пройдено" if validation_ok else "не пройдено"
+            logging.info(
+                f"8. Проверка релевантности изображения: {status}. {validation_feedback}"
+            )
+        except Exception as validation_err:
+            logging.warning(
+                f"⚠️ Проверка релевантности не выполнена: {validation_err}"
+            )
         
     except Exception as e:
         logging.error(f"!!! КРИТИЧЕСКАЯ ОШИБКА в пайплайне: {e}")
         raise e
 
     logging.info("--- КОНЕЦ ОБРАБОТКИ ---")
-    return images_data
+    return GenerationResult(
+        images=images_data,
+        validation_ok=validation_ok,
+        validation_feedback=validation_feedback,
+    )

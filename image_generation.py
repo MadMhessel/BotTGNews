@@ -1,3 +1,4 @@
+import base64
 import io
 import logging
 import time
@@ -83,14 +84,25 @@ def generate_image_with_gemini(image_prompt: str) -> Image.Image:
                 for part in candidate.content.parts:
                     # Проверяем наличие байтов (изображения)
                     if part.inline_data and part.inline_data.data:
-                        logging.info(f"✅ Изображение получено! Размер: {len(part.inline_data.data)} байт.")
-                        try:
-                            image_bytes = part.inline_data.data
-                            img = Image.open(io.BytesIO(image_bytes))
-                            img.load() # Проверка целостности
+                        raw_data = part.inline_data.data
+                        logging.info(f"✅ Изображение получено! Размер: {len(raw_data)} байт.")
+                        
+                        def _open_image(data: bytes) -> Image.Image:
+                            img = Image.open(io.BytesIO(data))
+                            img.load()  # Проверка целостности
                             return img
+
+                        try:
+                            return _open_image(raw_data)
                         except Exception as img_err:
-                            logging.error(f"❌ Ошибка открытия изображения PIL: {img_err}")
+                            logging.error(f"❌ Ошибка открытия изображения PIL (прямая загрузка): {img_err}")
+
+                        # Попытка декодировать base64, если SDK вернул данные в виде ASCII-строки
+                        try:
+                            decoded_bytes = base64.b64decode(raw_data)
+                            return _open_image(decoded_bytes)
+                        except Exception as decode_err:
+                            logging.error(f"❌ Ошибка открытия изображения после base64-декодирования: {decode_err}")
                             continue
                     
                     # Если модель вернула текст вместо картинки (отказ)
