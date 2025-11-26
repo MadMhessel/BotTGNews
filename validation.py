@@ -34,7 +34,7 @@ def validate_image_relevance(image_bytes: bytes, news_text: str) -> Tuple[bool, 
         response = client.models.generate_content(
             model="gemini-3-pro-preview",
             contents=[
-                types.Part.from_bytes(image_bytes, mime_type="image/jpeg"),
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                 types.Part(text=f"{VALIDATION_PROMPT}\nНовость: {news_text}"),
             ],
             config=types.GenerateContentConfig(response_mime_type="application/json"),
