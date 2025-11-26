@@ -1,9 +1,8 @@
 import json
 import logging
 import re
-from google.genai import types
 
-from gemini_client import get_gemini_client
+from gemini_client import get_gemini_client, types
 
 SYSTEM_PROMPT_ANALYZE = '''Ты — главный аналитик. Твоя задача: прочитать текст и вернуть ТОЛЬКО валидный JSON.
 Не пиши вступлений, не используй Markdown блоки.

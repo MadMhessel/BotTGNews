@@ -1,6 +1,12 @@
 import os
-from google import genai
-from google.genai import types
+
+try:
+    from google import genai
+    from google.genai import types as genai_types
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "Пакет google-genai не установлен. Установите зависимости: `pip install -r requirements.txt`."
+    ) from exc
 
 _client = None
 
@@ -32,3 +38,7 @@ def get_gemini_client() -> genai.Client:
         )
         
     return _client
+
+
+# Экспорт типов SDK, чтобы модули могли использовать единую точку импорта
+types = genai_types
